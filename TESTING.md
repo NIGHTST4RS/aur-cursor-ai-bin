@@ -63,6 +63,28 @@ Use the provided `test_bash_workflow.sh` script to test locally.
 - Can test multiple times quickly
 - Full control over the process
 
+### Method 2b: Interactive Local Update Helper
+
+Use `local_update.sh` when you want to update the local checkout and optionally
+install the package on this PC.
+
+**Steps:**
+```bash
+./local_update.sh
+```
+
+**What it does:**
+- Fetches the newest Cursor release metadata
+- Generates and validates `PKGBUILD.test`
+- Optionally shows the generated recipe and diff
+- Asks before replacing `PKGBUILD`
+- Asks before checking sources with `makepkg --verifysource`
+- Asks before running `makepkg -si`
+- Asks before deleting build artifacts
+
+This helper can change the tracked `PKGBUILD` and can install/update the local
+package if you accept those prompts. It does not commit or publish to AUR.
+
 ### Method 3: Test on a Fork
 
 Create a fork and test there without affecting the main repository.
@@ -176,4 +198,3 @@ Before merging to `main`:
 - Install missing dependencies: `sudo pacman -S libarchive curl jq gawk`
 - Check network connectivity
 - Verify Cursor API is accessible
-
