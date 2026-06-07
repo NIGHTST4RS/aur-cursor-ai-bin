@@ -103,11 +103,9 @@ current_pkgbuild_value() {
     fi
 }
 
-show_installed_version() {
+installed_pkgver() {
     if command -v pacman > /dev/null 2>&1 && pacman -Q "$PKGNAME" > /dev/null 2>&1; then
-        echo "Installed package: $(pacman -Q "$PKGNAME")"
-    else
-        echo "Installed package: not found via pacman"
+        pacman -Q "$PKGNAME" | awk '{print $2}' | sed 's/-[^-]*$//'
     fi
 }
 
@@ -187,7 +185,7 @@ clean_artifacts() {
 }
 
 main() {
-    local current_pkgver current_commit stable_pkgver stable_minor current_minor
+    local current_pkgver current_commit installed_version stable_pkgver stable_minor current_minor
     local api_response tmp_deb new_sha
 
     echo "Cursor local package updater"
@@ -201,7 +199,12 @@ main() {
         exit 1
     fi
 
-    show_installed_version
+    installed_version=$(installed_pkgver)
+    if [[ -n "$installed_version" ]]; then
+        echo "Installed package version: ${installed_version}"
+    else
+        echo "Installed package version: not found via pacman"
+    fi
 
     current_pkgver=$(current_pkgbuild_value pkgver)
     current_commit=$(current_pkgbuild_value _commit)
@@ -248,63 +251,69 @@ main() {
 
     if [[ "$current_pkgver" == "$NEW_PKGVER" && "$current_commit" == "$NEW_COMMIT" ]]; then
         echo "PKGBUILD already matches the latest candidate."
-        clean_artifacts
-        exit 0
-    fi
-
-    if ! prompt_yes_no "Download the upstream .deb and generate ${GENERATED}?" y; then
-        clean_artifacts
-        exit 0
-    fi
-
-    tmp_deb=$(mktemp /tmp/cursor_local_update.XXXXXX.deb)
-    trap 'rm -f "$tmp_deb"' EXIT
-
-    echo "Downloading ${DEB_URL}..."
-    curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused --connect-timeout 15 --max-time 300 "$DEB_URL" -o "$tmp_deb"
-    if [[ ! -s "$tmp_deb" ]]; then
-        echo "Downloaded .deb is empty."
-        exit 1
-    fi
-
-    new_sha=$(sha512sum "$tmp_deb" | cut -d ' ' -f 1)
-    echo "SHA512: ${new_sha:0:20}..."
-
-    generate_pkgbuild "$new_sha"
-    validate_pkgbuild "$new_sha"
-    echo
-
-    if prompt_yes_no "Show the generated PKGBUILD?" n; then
-        cat "$GENERATED"
-        echo
-    fi
-
-    if [[ -f PKGBUILD ]] && prompt_yes_no "Show diff against current PKGBUILD?" y; then
-        diff -u PKGBUILD "$GENERATED" || true
-        echo
-    fi
-
-    if ! prompt_yes_no "Replace PKGBUILD with ${GENERATED}?" n; then
-        echo "Kept ${GENERATED}; PKGBUILD was not changed."
-        clean_artifacts
-        exit 0
-    fi
-
-    cp "$GENERATED" PKGBUILD
-    echo "Updated PKGBUILD."
-
-    if command -v makepkg > /dev/null 2>&1; then
-        if prompt_yes_no "Check sources with makepkg --verifysource before installing?" y; then
-            makepkg --verifysource --noconfirm -f
-        fi
-
-        if prompt_yes_no "Build and install ${PKGNAME} with makepkg -si?" n; then
-            makepkg -si
+        if [[ -n "$installed_version" && "$installed_version" != "$NEW_PKGVER" ]]; then
+            echo "Installed package is ${installed_version}, so a local install can still update this PC."
         else
-            echo "Skipped local install."
+            clean_artifacts
+            exit 0
         fi
     else
+        if ! prompt_yes_no "Download the upstream .deb and generate ${GENERATED}?" y; then
+            clean_artifacts
+            exit 0
+        fi
+
+        tmp_deb=$(mktemp /tmp/cursor_local_update.XXXXXX.deb)
+        trap 'rm -f "$tmp_deb"' EXIT
+
+        echo "Downloading ${DEB_URL}..."
+        curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused --connect-timeout 15 --max-time 300 "$DEB_URL" -o "$tmp_deb"
+        if [[ ! -s "$tmp_deb" ]]; then
+            echo "Downloaded .deb is empty."
+            exit 1
+        fi
+
+        new_sha=$(sha512sum "$tmp_deb" | cut -d ' ' -f 1)
+        echo "SHA512: ${new_sha:0:20}..."
+
+        generate_pkgbuild "$new_sha"
+        validate_pkgbuild "$new_sha"
+        echo
+
+        if prompt_yes_no "Show the generated PKGBUILD?" n; then
+            cat "$GENERATED"
+            echo
+        fi
+
+        if [[ -f PKGBUILD ]] && prompt_yes_no "Show diff against current PKGBUILD?" y; then
+            diff -u PKGBUILD "$GENERATED" || true
+            echo
+        fi
+
+        if ! prompt_yes_no "Replace PKGBUILD with ${GENERATED}?" n; then
+            echo "Kept ${GENERATED}; PKGBUILD was not changed."
+            clean_artifacts
+            exit 0
+        fi
+
+        cp "$GENERATED" PKGBUILD
+        echo "Updated PKGBUILD."
+    fi
+
+    if ! command -v makepkg > /dev/null 2>&1; then
         echo "makepkg was not found; skipping local install prompt."
+        clean_artifacts
+        exit 0
+    fi
+
+    if prompt_yes_no "Check sources with makepkg --verifysource before installing?" y; then
+        makepkg --verifysource --noconfirm -f
+    fi
+
+    if prompt_yes_no "Build and install ${PKGNAME} with makepkg -si?" n; then
+        makepkg -si
+    else
+        echo "Skipped local install."
     fi
 
     clean_artifacts
