@@ -15,7 +15,7 @@ _commit=
 source=("https://downloads.cursor.com/production/${_commit}/linux/x64/deb/amd64/deb/cursor_${pkgver}_amd64.deb"
 rg.sh)
 sha512sums=('SKIP'
-  'e79fe7659f59d1ae02fc68816399bfd31587315df6cdb6ccf1d0ca76f7cdc692c2a42b30591c0091147bd97ef14b1c7745dc26bd7cb3ea6bba45698e5044fa2a')
+  'a66d01d7bffe84fc0ec7b31ca1a63e39484eff43b125ffcd5b5b2218280e24c30933bd9a49b243b83605c60e94e5e4f3e4173131f50bcaf05df52ff218c25ad5')
 sha512sums[0]=
 noextract=(cursor_${pkgver}_amd64.deb) # avoid double tarball
 _app=usr/share/cursor/resources/app
@@ -36,7 +36,6 @@ package() {
   fi
   # Install a launcher wrapper (instead of exposing the raw Electron binary).
   # This honors cursor-flags.conf and delegates to Cursor's upstream trampoline at /usr/share/cursor/bin/cursor.
-  # and delegates to Cursor's upstream trampoline at /usr/share/cursor/bin/cursor.
   install -Dm755 /dev/stdin usr/bin/cursor <<'EOF'
 #!/bin/bash
 set -euo pipefail

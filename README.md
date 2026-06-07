@@ -40,6 +40,7 @@ After install/update, pacman prints a short package message with the AUR page UR
 | `PKGBUILD.sed` | Template used by the workflow |
 | `PKGBUILD` | Current generated package recipe |
 | `test_bash_workflow.sh` | Local dry-run generator/validator |
+| `local_update.sh` | Interactive local updater/installer |
 | `TESTING.md` | Testing guide and checklist |
 
 ## Automated workflow
@@ -84,6 +85,20 @@ Optional checks:
 makepkg --verifysource --noconfirm
 makepkg -s
 ```
+
+## Local update helper
+
+For an interactive local update on your own machine:
+
+```bash
+./local_update.sh
+```
+
+The helper fetches the newest Cursor release metadata, generates and validates
+`PKGBUILD.test`, optionally shows the generated recipe and diff, asks before
+replacing `PKGBUILD`, asks before checking sources with `makepkg --verifysource`,
+asks before running `makepkg -si`, and asks before deleting local build artifacts
+such as `pkg/`, `src/`, downloaded `.deb` files, and built package archives.
 
 ## Why bundled runtime
 
