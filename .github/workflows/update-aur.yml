@@ -13,6 +13,14 @@ on:
           - "true"
         default: "false"
         required: true
+      publish_to_aur:
+        description: "Publish generated package update to AUR"
+        type: choice
+        options:
+          - "false"
+          - "true"
+        default: "false"
+        required: true
 
 permissions:
   contents: write
@@ -37,6 +45,7 @@ jobs:
         id: check
         env:
           FORCE_PUBLISH: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_publish || 'false' }}
+          PUBLISH_TO_AUR: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_aur || 'false' }}
         run: |
           set -euo pipefail
           echo "::group::Checking for updates"
@@ -54,20 +63,30 @@ jobs:
             [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$1" ] && [ "$1" != "$2" ]
           }
 
-          # Get current version from AUR
-          aur_response=$(curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused --connect-timeout 10 --max-time 30 "https://aur.archlinux.org/rpc/?v=5&type=info&arg[]=cursor-ai-bin")
+          echo "AUR publish requested: ${PUBLISH_TO_AUR}"
+          echo "publish_to_aur=${PUBLISH_TO_AUR}" >> $GITHUB_OUTPUT
+
+          # Get current version from AUR only when publishing is requested.
+          aur_response=""
           aur_resultcount=0
           aur_pkgver=""
           aur_exists=false
-          if [ -n "$aur_response" ]; then
+          if [ "${PUBLISH_TO_AUR}" = "true" ]; then
+            aur_response=$(curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused --connect-timeout 10 --max-time 30 "https://aur.archlinux.org/rpc/?v=5&type=info&arg[]=cursor-ai-bin")
+          fi
+          if [ -n "${aur_response}" ]; then
             aur_resultcount=$(echo "$aur_response" | jq -r '.resultcount // 0')
           fi
           if [ "$aur_resultcount" -gt 0 ]; then
             aur_exists=true
             aur_pkgver=$(echo "$aur_response" | jq -r '.results[0].Version // empty' | cut -d'-' -f1)
           fi
-          echo "AUR version: ${aur_pkgver:-unknown}"
-          echo "AUR package exists: ${aur_exists}"
+          if [ "${PUBLISH_TO_AUR}" = "true" ]; then
+            echo "AUR version: ${aur_pkgver:-unknown}"
+            echo "AUR package exists: ${aur_exists}"
+          else
+            echo "AUR version check skipped."
+          fi
           echo "Force publish requested: ${FORCE_PUBLISH}"
 
           select_candidate() {
@@ -153,7 +172,7 @@ jobs:
             echo "update_reason=${downgrade_reason}" >> $GITHUB_OUTPUT
             exit 0
           fi
-          if [ "${FORCE_PUBLISH}" != "true" ] && [ "${aur_exists}" = "true" ] && [ -n "$aur_pkgver" ] && version_lt "$new_pkgver" "$aur_pkgver"; then
+          if [ "${PUBLISH_TO_AUR}" = "true" ] && [ "${FORCE_PUBLISH}" != "true" ] && [ "${aur_exists}" = "true" ] && [ -n "$aur_pkgver" ] && version_lt "$new_pkgver" "$aur_pkgver"; then
             downgrade_reason="Refusing downgrade: stable API version ${new_pkgver} is older than AUR ${aur_pkgver}."
             echo "$downgrade_reason"
             echo "update_needed=false" >> $GITHUB_OUTPUT
@@ -165,11 +184,11 @@ jobs:
           update_reason=""
           if [ "${FORCE_PUBLISH}" = "true" ]; then
             update_reason="Manual force publish requested."
-          elif [ "${aur_exists}" != "true" ]; then
-            update_reason="AUR package missing; initial publish required."
           elif [ "$current_pkgver" != "$new_pkgver" ] || [ "$current_commit" != "$new_commit" ]; then
             update_reason="Local PKGBUILD is behind latest upstream."
-          elif [ "$aur_pkgver" != "$new_pkgver" ]; then
+          elif [ "${PUBLISH_TO_AUR}" = "true" ] && [ "${aur_exists}" != "true" ]; then
+            update_reason="AUR package missing; initial publish required."
+          elif [ "${PUBLISH_TO_AUR}" = "true" ] && [ "$aur_pkgver" != "$new_pkgver" ]; then
             update_reason="AUR version differs from latest upstream."
           fi
 
@@ -257,18 +276,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Check branch and continue or stop workflow
+      - name: Check AUR publish settings
         if: steps.check.outputs.update_needed == 'true'
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/development" ]]; then
-            echo "On development branch, stopping workflow"
-            exit 0
+          echo "AUR publish requested: ${{ steps.check.outputs.publish_to_aur }}"
+          if [[ "${{ steps.check.outputs.publish_to_aur }}" != "true" ]]; then
+            echo "AUR publishing disabled; repository update is complete."
+          elif [[ "${{ github.ref }}" == "refs/heads/development" ]]; then
+            echo "AUR publishing requested, but development branch is publish-protected."
           else
-            echo "On main branch, continuing workflow"
+            echo "AUR publishing requested on publishable branch."
           fi
 
       - name: Install SSH Key
-        if: steps.check.outputs.update_needed == 'true' && github.ref != 'refs/heads/development'
+        if: steps.check.outputs.update_needed == 'true' && steps.check.outputs.publish_to_aur == 'true' && github.ref != 'refs/heads/development'
         uses: shimataro/ssh-key-action@87a8f067114a8ce263df83e9ed5c849953548bc3 # v2.8.1
         with:
           key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
@@ -276,7 +297,7 @@ jobs:
           if_key_exists: replace
 
       - name: Publish AUR package
-        if: steps.check.outputs.update_needed == 'true' && github.ref != 'refs/heads/development'
+        if: steps.check.outputs.update_needed == 'true' && steps.check.outputs.publish_to_aur == 'true' && github.ref != 'refs/heads/development'
         uses: KSXGitHub/github-actions-deploy-aur@abe8ac26b51011c88be58c8809fd2ac674068ea5 # v4.1.2
         with:
           pkgname: cursor-ai-bin
@@ -296,8 +317,13 @@ jobs:
           echo "Reason: ${{ steps.check.outputs.update_reason }}"
           echo "New version: ${{ steps.check.outputs.new_version }}"
           echo "New commit: ${{ steps.check.outputs.new_commit }}"
+          echo "AUR publish requested: ${{ steps.check.outputs.publish_to_aur }}"
           if [ "${{ steps.check.outputs.update_needed }}" = "true" ]; then
-            echo "PKGBUILD updated and published to AUR"
+            if [ "${{ steps.check.outputs.publish_to_aur }}" = "true" ] && [ "${{ github.ref }}" != "refs/heads/development" ]; then
+              echo "PKGBUILD updated and AUR publish attempted"
+            else
+              echo "PKGBUILD updated in repository only"
+            fi
           else
             echo "No update needed"
           fi

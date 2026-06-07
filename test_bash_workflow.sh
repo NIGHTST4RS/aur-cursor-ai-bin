@@ -4,8 +4,44 @@
 
 set -euo pipefail
 
+usage() {
+    cat <<'EOF'
+Usage: ./test_bash_workflow.sh [--stable|--latest]
+
+Options:
+  --stable   Use Cursor's stable release track, plus golden patch metadata (default)
+  --latest   Use Cursor's latest release track directly
+  -h, --help Show this help
+EOF
+}
+
+RELEASE_TRACK="stable"
+USE_GOLDEN_PATCHES=1
+
+case "${1:-}" in
+    "" | "--stable" | "stable")
+        RELEASE_TRACK="stable"
+        USE_GOLDEN_PATCHES=1
+        ;;
+    "--latest" | "latest")
+        RELEASE_TRACK="latest"
+        USE_GOLDEN_PATCHES=0
+        ;;
+    "-h" | "--help")
+        usage
+        exit 0
+        ;;
+    *)
+        echo "❌ Unknown option: $1"
+        echo ""
+        usage
+        exit 1
+        ;;
+esac
+
 echo "🧪 Testing bash-based PKGBUILD generation workflow"
 echo "=================================================="
+echo "Release track: ${RELEASE_TRACK}"
 echo ""
 
 # Check dependencies
@@ -62,6 +98,10 @@ select_candidate() {
         candidate_commit=$(extract_commit "$candidate_deb_url")
     fi
 
+    if [ -z "$candidate_deb_url" ] && [ -n "$candidate_pkgver" ] && [ -n "$candidate_commit" ]; then
+        candidate_deb_url="https://downloads.cursor.com/production/${candidate_commit}/linux/x64/deb/amd64/deb/cursor_${candidate_pkgver}_amd64.deb"
+    fi
+
     if [ -z "$candidate_pkgver" ] || [ -z "$candidate_commit" ] || [ -z "$candidate_deb_url" ]; then
         echo "⚠️  Skipping ${source} candidate due to incomplete metadata"
         return
@@ -95,7 +135,7 @@ query_golden_minor() {
     fi
 }
 
-CURSOR_UPDATE_API="https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=stable"
+CURSOR_UPDATE_API="https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=${RELEASE_TRACK}"
 echo "🌐 Querying Cursor update API..."
 API_RESPONSE=$(curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused --connect-timeout 10 --max-time 30 "$CURSOR_UPDATE_API")
 
@@ -109,20 +149,22 @@ NEW_COMMIT=""
 DEB_URL=""
 SELECTED_SOURCE=""
 
-select_candidate "stable" "$API_RESPONSE"
-STABLE_PKGVER=$(echo "$API_RESPONSE" | jq -r '.version // empty')
-STABLE_MINOR=$(echo "$STABLE_PKGVER" | awk -F. 'NF>=2 {print $1 "." $2}')
+select_candidate "$RELEASE_TRACK" "$API_RESPONSE"
+TRACK_PKGVER=$(echo "$API_RESPONSE" | jq -r '.version // empty')
+TRACK_MINOR=$(echo "$TRACK_PKGVER" | awk -F. 'NF>=2 {print $1 "." $2}')
 CURRENT_MINOR=$(echo "${CURRENT_PKGVER:-}" | awk -F. 'NF>=2 {print $1 "." $2}')
 
-query_golden_minor "$CURRENT_MINOR"
-if [ "$STABLE_MINOR" != "$CURRENT_MINOR" ]; then
-    query_golden_minor "$STABLE_MINOR"
+if [ "$USE_GOLDEN_PATCHES" -eq 1 ]; then
+    query_golden_minor "$CURRENT_MINOR"
+    if [ "$TRACK_MINOR" != "$CURRENT_MINOR" ]; then
+        query_golden_minor "$TRACK_MINOR"
+    fi
 fi
 
 echo "Latest version found: ${NEW_PKGVER:-unknown} (source: ${SELECTED_SOURCE:-n/a})"
 
 if [ -z "$NEW_PKGVER" ] || [ -z "$NEW_COMMIT" ] || [ -z "$DEB_URL" ]; then
-    echo "❌ ERROR: Failed to resolve version/commit/debUrl from stable/golden API responses"
+    echo "❌ ERROR: Failed to resolve version/commit/debUrl from Cursor API responses"
     exit 1
 fi
 if ! [[ "$NEW_PKGVER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -139,7 +181,7 @@ echo "New commit: ${NEW_COMMIT}"
 echo ""
 
 if [ -n "$CURRENT_PKGVER" ] && version_lt "$NEW_PKGVER" "$CURRENT_PKGVER"; then
-    echo "⚠️  Stable API returned an older version (${NEW_PKGVER}) than local PKGBUILD (${CURRENT_PKGVER})."
+    echo "⚠️  Selected release candidate (${NEW_PKGVER}) is older than local PKGBUILD (${CURRENT_PKGVER})."
     echo "⚠️  Refusing downgrade in local test run."
     exit 0
 fi

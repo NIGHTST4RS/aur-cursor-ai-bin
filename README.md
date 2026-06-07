@@ -50,21 +50,33 @@ After install/update, pacman prints a short package message with the AUR page UR
 4. Regenerate `PKGBUILD` from `PKGBUILD.sed`.
 5. Validate generated fields.
 6. Commit to the repo branch.
-7. Publish to AUR (on `main`; skipped on `dev`).
+7. Optionally publish to AUR only when manually requested.
 
-When triggered manually, `workflow_dispatch` also supports `force_publish=true` to publish even if versions already match.
-The workflow also auto-publishes when the AUR package does not exist yet (initial bootstrap).
+By default, scheduled and manual runs update this repository only and do not touch AUR credentials or publish to AUR.
+When triggered manually, `workflow_dispatch` supports `publish_to_aur=true` to publish to AUR from a publishable branch.
+It also supports `force_publish=true` to regenerate/commit even if versions already match.
 
 ## Branch behavior
 
 - `dev`: update + validation only, no AUR publish.
-- `main`: update + AUR publish.
+- `main`: update + optional AUR publish when `publish_to_aur=true`.
 
 ## Local testing
 
 ```bash
 ./test_bash_workflow.sh
 ```
+
+To generate from Cursor's `latest` release track instead of the default stable/golden flow:
+
+```bash
+./test_bash_workflow.sh --latest
+mv PKGBUILD.test PKGBUILD
+makepkg --printsrcinfo > .SRCINFO
+makepkg -Csfci
+```
+
+The `latest` API may omit `debUrl`, so the local script derives the `.deb` URL from the returned `version` and `commitSha`.
 
 Optional checks:
 
