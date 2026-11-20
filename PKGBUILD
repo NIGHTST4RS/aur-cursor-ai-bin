@@ -1,7 +1,7 @@
 # Maintainer: NightStars <nightstars@galaxistars.com>
 
 pkgname=cursor-ai-bin
-pkgver=3.30.14
+pkgver=3.31.11
 pkgrel=1
 pkgdesc='AI-first coding environment'
 arch=('x86_64')
@@ -11,12 +11,12 @@ install=cursor-ai-bin.install
 depends=(xdg-utils ripgrep nodejs
   'gcc-libs' 'hicolor-icon-theme' 'libxkbfile')
 options=(!strip !debug) # Don't break ext of VSCode
-_commit=5f54c8173e5552412beb40702adac16275677fa0
+_commit=52fdf018932f1335bc6dd36acc5e33d30759192e
 source=("https://downloads.cursor.com/production/${_commit}/linux/x64/deb/amd64/deb/cursor_${pkgver}_amd64.deb"
 rg.sh)
 sha512sums=('SKIP'
   'a66d01d7bffe84fc0ec7b31ca1a63e39484eff43b125ffcd5b5b2218280e24c30933bd9a49b243b83605c60e94e5e4f3e4173131f50bcaf05df52ff218c25ad5')
-sha512sums[0]=e6521ef9b4695a6da52187e3f2c155698bf989b57b71bb0860514c08d82e67780e28ea6f3be0d2055af1c7d8d5ecaa6c456b96feacefe98c1585d4075968d230
+sha512sums[0]=8659c7ac765bd4e166c26b95906583966120d6f4903721dfa8ea5d0d35966e0a876aabb35f515b74487e56ff17531dab2cefc93f157f0c3390ad0ed384282f2d
 noextract=(cursor_${pkgver}_amd64.deb) # avoid double tarball
 _app=usr/share/cursor/resources/app
 package() {
